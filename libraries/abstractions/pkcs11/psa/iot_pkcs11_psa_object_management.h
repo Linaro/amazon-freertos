@@ -29,6 +29,9 @@
 #ifndef __IOT_PKCS11_PSA_OBJECT_MANAGEMENT_H__
 #define __IOT_PKCS11_PSA_OBJECT_MANAGEMENT_H__
 
+#include <string.h>
+#include <stdbool.h>
+
 /* PKCS#11 includes. */
 #include "iot_pkcs11_config.h"
 #include "iot_pkcs11.h"
@@ -36,18 +39,46 @@
 /* PSA includes. */
 #include "psa/crypto.h"
 #include "psa/protected_storage.h"
-#include "flash_layout.h"
 
 /* mbedTLS includes. */
 #include "mbedtls/pk.h"
 
+/*
+ * Define the key ID of the device keys which will be saved as
+ * persistent keys in TF-M.
+ */
+#ifndef PSA_DEVICE_PRIVATE_KEY_ID
+#define PSA_DEVICE_PRIVATE_KEY_ID     ( ( psa_key_id_t )0x01 )
+#endif
+
+#ifndef PSA_DEVICE_PUBLIC_KEY_ID
+#define PSA_DEVICE_PUBLIC_KEY_ID      ( ( psa_key_id_t )0x10 )
+#endif
+
+/* UID that indicates the device certificate data in PSA protected storage service. */
+#ifndef PSA_DEVICE_CERTIFICATE_UID
+#define PSA_DEVICE_CERTIFICATE_UID    ( ( psa_storage_uid_t )5 )
+#endif
+
+/* UID that indicates the jitp certificate data in PSA protected storage service. */
+#ifndef PSA_JITP_CERTIFICATE_UID
+#define PSA_JITP_CERTIFICATE_UID      ( ( psa_storage_uid_t )6 )
+#endif
+
+/* UID that indicates the root certificate data in PSA protected storage service. */
+#ifndef PSA_ROOT_CERTIFICATE_UID
+#define PSA_ROOT_CERTIFICATE_UID      ( ( psa_storage_uid_t )7 )
+#endif
+
 /**
  * @brief Object definitions.
  */
-#define pkcs11OBJECT_MAX_SIZE         SST_MAX_ASSET_SIZE
-#define pkcs11OBJECT_PRESENT_MAGIC    ( 0xABCD0000uL )
-#define pkcs11OBJECT_LENGTH_MASK      ( 0x0000FFFFuL )
-#define pkcs11OBJECT_PRESENT_MASK     ( 0xFFFF0000uL )
+#define pkcs11OBJECT_MAX_SIZE         ( 1300 )
+
+/**
+ * @brief The oject handle field is N/A/
+ */
+#define pkcs11OBJECT_HANDLE_NA        ( 0x0000 )
 
 /**
  * The max length(in byte) of the privateKey field of the ECPrivateKey format
@@ -71,18 +102,15 @@ typedef enum eObjectHandles
  */
 typedef struct
 {
-    psa_ps_uid_t uxDeviceCertificate;  /* UID that indicates the device certificate data in PSA protected storage service. */
     psa_key_handle_t uxDevicePrivateKey;  /* Device private key handle that returned by PSA crypto service. */
     psa_key_handle_t uxDevicePublicKey;  /* Device public key handle that returned by PSA crypto service. */
     psa_key_handle_t uxCodeVerifyKey;  /* Key handle of the key that used by over-the-air update code to verify an incoming signed image. */
-    psa_ps_uid_t uxJitpCertificate; /* UID that indicates the JITP certificate data in PSA protected storage service. */
-    psa_ps_uid_t uxRootCertificate; /* UID that indicates the Root certificate data in PSA protected storage service. */
-    uint32_t ulDeviceCertificateMark;
-    uint32_t ulDevicePrivateKeyMark;
-    uint32_t ulDevicePublicKeyMark;
-    uint32_t ulCodeVerifyKeyMark;
-    uint32_t ulJitpCertificateMark;
-    uint32_t ulRootCertificateMark;
+    BaseType_t xDeviceCertificateMark;
+    BaseType_t xDevicePrivateKeyMark;
+    BaseType_t xDevicePublicKeyMark;
+    BaseType_t xCodeVerifyKeyMark;
+    BaseType_t xJitpCertificateMark;
+    BaseType_t xRootCertificateMark;
 } P11KeyConfig_t;
 
 /**
@@ -98,7 +126,7 @@ typedef struct
 *
 * @return The file handle of the object that was stored.
 */
-CK_OBJECT_HANDLE PKCS11_PSA_SaveObject( CK_ATTRIBUTE_PTR pxClass,
+CK_OBJECT_HANDLE PKCS11PSASaveObject( CK_ATTRIBUTE_PTR pxClass,
     CK_ATTRIBUTE_PTR pxLabel,
     uint8_t * pucData,
     uint32_t ulDataSize,
@@ -110,11 +138,11 @@ CK_OBJECT_HANDLE PKCS11_PSA_SaveObject( CK_ATTRIBUTE_PTR pxClass,
 * Port-specific file access for cryptographic information.
 *
 * This call dynamically allocates the buffer which object value
-* data is copied into.  PKCS11_PSA_GetObjectValueCleanup()
+* data is copied into.  PKCS11PSAGetObjectValueCleanup()
 * should be called after each use to free the dynamically allocated
 * buffer.
 *
-* @sa PKCS11_PSA_GetObjectValueCleanup
+* @sa PKCS11PSAGetObjectValueCleanup
 *
 * @param[in] pcFileName    The name of the file to be read.
 * @param[out] ppucData     Pointer to buffer for file data.
@@ -127,34 +155,57 @@ CK_OBJECT_HANDLE PKCS11_PSA_SaveObject( CK_ATTRIBUTE_PTR pxClass,
 * buffer could not be allocated, CKR_FUNCTION_FAILED for device driver
 * error.
 */
-CK_RV PKCS11_PSA_GetObjectValue( CK_OBJECT_HANDLE xHandle,
+CK_RV PKCS11PSAGetObjectValue( CK_OBJECT_HANDLE xHandle,
     uint8_t * ppucData,
     uint32_t * pulDataSize,
     CK_BBOOL * pIsPrivate );
 
 /**
-* @brief Translates a PKCS #11 label into an object handle.
-*
-* Port-specific object handle retrieval.
-*
-*
-* @param[in] pLabel         Pointer to the label of the object
-*                           who's handle should be found.
-* @param[in] usLength       The length of the label, in bytes.
-*
-* @return The object handle if operation was successful.
-* Returns eInvalidHandle if unsuccessful.
-*/
-CK_OBJECT_HANDLE PKCS11_PSA_FindObject( uint8_t * pLabel, uint8_t usLength );
-
-/**
-* @brief Cleanup after PKCS11_PSA_GetObjectValue().
+* @brief Cleanup after PKCS11PSAGetObjectValue().
 *
 * @param[in] pucData       The buffer to free.
-*                          (*ppucData from PKCS11_PSA_GetObjectValue())
+*                          (*ppucData from PKCS11PSAGetObjectValue())
 * @param[in] ulDataSize    The length of the buffer to free.
-*                          (*pulDataSize from PKCS11_PSA_GetObjectValue())
+*                          (*pulDataSize from PKCS11PSAGetObjectValue())
 */
-void PKCS11_PSA_GetObjectValueCleanup( uint8_t * pucData, uint32_t ulDataSize );
+void PKCS11PSAGetObjectValueCleanup( uint8_t * pucData, uint32_t ulDataSize );
+
+/**
+* @brief Import an object into P11KeyConfig.
+*
+* @param[in] pLableValue        The lable of the object.
+*
+* @param[in] ulLableLen         The length of the object label.
+*
+* @param[in] uxKeyHandle        The key handle.
+*
+*/
+void PKCS11PSAContextImportObject( CK_VOID_PTR pLableValue,
+                                   CK_LONG  ulLableLen,
+                                   psa_key_handle_t uxKeyHandle );
+
+/**
+* @brief Close or remove an object from PSA and update P11KeyConfig accordingly.
+*
+* @param[in] pLableValue        The lable of the object.
+*
+* @param[in] ulLableLen         The length of the object label.
+*
+* @param[in] permanent          Destroy the key or just close the key.
+*
+*/
+CK_RV PKCS11PSARemoveObject(uint8_t * pcLable, size_t xLabelLength, bool permanent);
+
+/**
+* @brief Get the PSA key handle by the object label.
+*
+* @param[in] pLableValue        The lable of the object.
+*
+* @param[in] ulLableLen         The length of the object label.
+*
+* @param[in] uxKeyHandle        The returned key handle.
+*
+*/
+CK_RV PKCS11PSAGetKeyHandle( uint8_t * pcLable, size_t xLabelLength, psa_key_handle_t * uxKeyHandle );
 
 #endif /* __IOT_PKCS11_PSA_OBJECT_MANAGEMENT_H__ */
