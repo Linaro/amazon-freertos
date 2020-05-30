@@ -1470,28 +1470,28 @@ CK_DEFINE_FUNCTION( CK_RV, C_OpenSession )( CK_SLOT_ID xSlotID,
         if( CKR_OK == xResult )
         {
             memset( pxSessionObj, 0, sizeof( P11Session_t ) );
-        }
 
-        pxSessionObj->xSignMutex = xSemaphoreCreateMutex();
+            pxSessionObj->xSignMutex = xSemaphoreCreateMutex();
 
-        if( NULL == pxSessionObj->xSignMutex )
-        {
-            xResult = CKR_HOST_MEMORY;
-        }
-        else
-        {
-            xSignMutexCreated = CK_TRUE;
-        }
+            if( NULL == pxSessionObj->xSignMutex )
+            {
+                xResult = CKR_HOST_MEMORY;
+            }
+            else
+            {
+                xSignMutexCreated = CK_TRUE;
+            }
 
-        pxSessionObj->xVerifyMutex = xSemaphoreCreateMutex();
+            pxSessionObj->xVerifyMutex = xSemaphoreCreateMutex();
 
-        if( NULL == pxSessionObj->xVerifyMutex )
-        {
-            xResult = CKR_HOST_MEMORY;
-        }
-        else
-        {
-            xVerifyMutexCreated = CK_TRUE;
+            if( NULL == pxSessionObj->xVerifyMutex )
+            {
+                xResult = CKR_HOST_MEMORY;
+            }
+            else
+            {
+                xVerifyMutexCreated = CK_TRUE;
+            }
         }
     }
 
@@ -1554,12 +1554,12 @@ CK_DEFINE_FUNCTION( CK_RV, C_CloseSession )( CK_SESSION_HANDLE xSession )
         /*
          * Tear down the session.
          */
-        pxSession->uxSignKey = NULL;
+        pxSession->uxSignKey = 0;
         if( NULL != pxSession->xSignMutex )
         {
             vSemaphoreDelete( pxSession->xSignMutex );
         }
-        pxSession->uxVerifyKey = NULL;
+        pxSession->uxVerifyKey = 0;
         if( NULL != pxSession->xVerifyMutex )
         {
             vSemaphoreDelete( pxSession->xVerifyMutex );
@@ -1799,7 +1799,7 @@ CK_DEFINE_FUNCTION( CK_RV, C_GetAttributeValue )( CK_SESSION_HANDLE xSession,
     mbedtls_ecp_point ecp_point;
     unsigned char ucGetData[pkcs11OBJECT_MAX_SIZE];
     uint8_t * pcLabel = NULL;
-    uint32_t ulLength = pkcs11OBJECT_MAX_SIZE;
+    size_t ulLength = pkcs11OBJECT_MAX_SIZE;
     psa_algorithm_t key_algorithm;
 
     if( xResult == CKR_OK )
@@ -1914,49 +1914,42 @@ CK_DEFINE_FUNCTION( CK_RV, C_GetAttributeValue )( CK_SESSION_HANDLE xSession,
                     }
                     else
                     {
-                        if( 0 != xResult )
-                        {
-                            xResult = CKR_FUNCTION_FAILED;
-                        }
-                        else
-                        {
-                            psa_key_handle_t ulKeyHandle = 0;
-                            xResult = PKCS11PSAGetKeyHandle( pcLabel, xSize, &ulKeyHandle );
+                        psa_key_handle_t ulKeyHandle = 0;
+                        xResult = PKCS11PSAGetKeyHandle( pcLabel, xSize, &ulKeyHandle );
 
-                            /* Get the key policy from which the key type can be derived. */
-                            if( xResult == CKR_OK )
+                        /* Get the key policy from which the key type can be derived. */
+                        if( xResult == CKR_OK )
+                        {
+                            psa_key_attributes_t key_attributes = PSA_KEY_ATTRIBUTES_INIT;
+                            uxStatus = psa_get_key_attributes( ulKeyHandle, &key_attributes );
+                            if ( uxStatus != PSA_SUCCESS )
                             {
-                                psa_key_attributes_t key_attributes = PSA_KEY_ATTRIBUTES_INIT;
-                                uxStatus = psa_get_key_attributes( ulKeyHandle, &key_attributes );
-                                if ( uxStatus != PSA_SUCCESS )
-                                {
-                                    xResult = CKR_FUNCTION_FAILED;
-                                }
-                                else
-                                {
-                                    key_algorithm = psa_get_key_algorithm( &key_attributes );
-                                }
+                                xResult = CKR_FUNCTION_FAILED;
                             }
-                            if( xResult == CKR_OK )
+                            else
                             {
-                                if( PSA_ALG_IS_ECDSA( key_algorithm ) )
-                                {
-                                    xPkcsKeyType = CKK_EC;
-                                }
-                                else if( PSA_ALG_IS_RSA_PKCS1V15_SIGN( key_algorithm ) ||
-                                        PSA_ALG_IS_RSA_PSS( key_algorithm ) )
-                                {
-                                    xPkcsKeyType = CKK_RSA;
-                                }
-                                else
-                                {
-                                    xResult = CKR_ATTRIBUTE_VALUE_INVALID;
-                                }
+                                key_algorithm = psa_get_key_algorithm( &key_attributes );
                             }
-                            if( xResult == CKR_OK )
+                        }
+                        if( xResult == CKR_OK )
+                        {
+                            if( PSA_ALG_IS_ECDSA( key_algorithm ) )
                             {
-                                memcpy( pxTemplate[ iAttrib ].pValue, &xPkcsKeyType, sizeof( CK_KEY_TYPE ) );
+                                xPkcsKeyType = CKK_EC;
                             }
+                            else if( PSA_ALG_IS_RSA_PKCS1V15_SIGN( key_algorithm ) ||
+                                    PSA_ALG_IS_RSA_PSS( key_algorithm ) )
+                            {
+                                xPkcsKeyType = CKK_RSA;
+                            }
+                            else
+                            {
+                                xResult = CKR_ATTRIBUTE_VALUE_INVALID;
+                            }
+                        }
+                        if( xResult == CKR_OK )
+                        {
+                            memcpy( pxTemplate[ iAttrib ].pValue, &xPkcsKeyType, sizeof( CK_KEY_TYPE ) );
                         }
                     }
 
@@ -2718,7 +2711,7 @@ CK_DEFINE_FUNCTION( CK_RV, C_SignInit )( CK_SESSION_HANDLE xSession,
             }
             else
             {
-                pxSession->uxSignKey = NULL;
+                pxSession->uxSignKey = 0;
                 xResult = CKR_KEY_HANDLE_INVALID;
             }
             xSemaphoreGive( pxSession->xSignMutex );
@@ -2868,19 +2861,19 @@ CK_DEFINE_FUNCTION( CK_RV, C_Sign )( CK_SESSION_HANDLE xSession,
             {
                 if( pdTRUE == xSemaphoreTake( pxSessionObj->xSignMutex, portMAX_DELAY ) )
                 {
-                    if ( pxSessionObj->uxSignKey == NULL )
+                    if ( pxSessionObj->uxSignKey == 0 )
                     {
                         xResult = CKR_KEY_HANDLE_INVALID;
                     }
                     else
                     {
-                        uxStatus = psa_asymmetric_sign( pxSessionObj->uxSignKey,
-                                                        pxSessionObj->xSignAlgorithm,
-                                                        ( const uint8_t * )pucDataToBeSigned,
-                                                        ( size_t )ulDataLengthToBeSigned,
-                                                        ( uint8_t * )pucSignature,
-                                                        ( size_t )*pulSignatureLen,
-                                                        ( size_t * )pulSignatureLen );
+                        uxStatus = psa_sign_hash( pxSessionObj->uxSignKey,
+                                                  pxSessionObj->xSignAlgorithm,
+                                                  ( const uint8_t * )pucDataToBeSigned,
+                                                  ( size_t )ulDataLengthToBeSigned,
+                                                  ( uint8_t * )pucSignature,
+                                                  ( size_t )*pulSignatureLen,
+                                                  ( size_t * )pulSignatureLen );
 
                         if( uxStatus != PSA_SUCCESS )
                         {
@@ -2965,7 +2958,7 @@ CK_DEFINE_FUNCTION( CK_RV, C_VerifyInit )( CK_SESSION_HANDLE xSession,
 
         if( xPalHandle == CK_INVALID_HANDLE )
         {
-            pxSession->uxSignKey = NULL;
+            pxSession->uxSignKey = 0;
             xResult = CKR_KEY_HANDLE_INVALID;
         }
     }
@@ -2993,7 +2986,7 @@ CK_DEFINE_FUNCTION( CK_RV, C_VerifyInit )( CK_SESSION_HANDLE xSession,
             }
             else
             {
-                pxSession->uxVerifyKey = NULL;
+                pxSession->uxVerifyKey = 0;
                 xResult = CKR_KEY_HANDLE_INVALID;
             }
 
@@ -3124,18 +3117,18 @@ CK_DEFINE_FUNCTION( CK_RV, C_Verify )( CK_SESSION_HANDLE xSession,
         if( pdTRUE == xSemaphoreTake( pxSessionObj->xVerifyMutex, portMAX_DELAY ) )
         {
             /* Verify the signature. If a public key is present, use it. */
-            if ( pxSessionObj->uxVerifyKey == NULL )
+            if ( pxSessionObj->uxVerifyKey == 0 )
             {
                 xResult = CKR_KEY_HANDLE_INVALID;
             }
             else
             {
-                uxStatus = psa_asymmetric_verify( pxSessionObj->uxVerifyKey,
-                                                  pxSessionObj->xVerifyAlgorithm,
-                                                  ( const uint8_t * )pucData,
-                                                  ( size_t )ulDataLen,
-                                                  ( const uint8_t * )pucSignature,
-                                                  ( size_t )ulSignatureLen );
+                uxStatus = psa_verify_hash( pxSessionObj->uxVerifyKey,
+                                            pxSessionObj->xVerifyAlgorithm,
+                                            ( const uint8_t * )pucData,
+                                            ( size_t )ulDataLen,
+                                            ( const uint8_t * )pucSignature,
+                                            ( size_t )ulSignatureLen );
 
                 if( uxStatus == PSA_SUCCESS )
                 {
